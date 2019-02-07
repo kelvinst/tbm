@@ -21,7 +21,15 @@ defmodule TBM.Cashier do
     send(cashier, {:process, client, items})
   end
 
-  defp loop do
+  def get_report(cashier) do
+    send(cashier, {:get_report, self()})
+
+    receive do
+      {:report, report} -> report
+    end
+  end
+
+  defp loop(report \\ 0) do
     receive do
       {:process, client, items} ->
         for i <- items..1 do
@@ -32,7 +40,11 @@ defmodule TBM.Cashier do
         Process.sleep(1000)
         IO.puts("#{client}: Paying")
 
-        loop()
+        loop(report + items)
+
+      {:get_report, pid} ->
+        send(pid, {:report, report})
+        loop(report)
 
       :stop ->
         :ok
