@@ -72,7 +72,7 @@ defmodule TBM.Client do
 
         cashier
         |> Cashier.get_in_line()
-        |> handle_cashier_response(state, fn ->
+        |> handle_cashier_response(state, fn :ok ->
           send(pid, :in_line)
           queue_loop(new_state)
         end)
@@ -103,13 +103,14 @@ defmodule TBM.Client do
 
       state
       |> send_item()
-      |> handle_cashier_response(state, fn ->
-        process_loop(new_state)
+      |> handle_cashier_response(state, fn
+        :next_item -> process_loop(new_state)
+        :back_to_line -> queue_loop(new_state)
       end)
     else
       state
       |> send_pay()
-      |> handle_cashier_response(state, fn ->
+      |> handle_cashier_response(state, fn :ok ->
         go_away(state)
       end)
     end
@@ -127,8 +128,8 @@ defmodule TBM.Client do
     Cashier.pay(state.cashier)
   end
 
-  defp handle_cashier_response(:ok, _, fun), do: fun.()
   defp handle_cashier_response(:timeout, state, _), do: cashier_is_dead(state)
+  defp handle_cashier_response(response, _, fun), do: fun.(response)
 
   defp cashier_is_dead(state) do
     IO.puts("#{state.name}: There's something wrong with this cashier, send me to another one")

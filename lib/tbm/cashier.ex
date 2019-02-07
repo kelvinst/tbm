@@ -5,8 +5,10 @@ defmodule TBM.Cashier do
 
   alias TBM.Client
 
-  def start do
-    spawn(&queue_loop/0)
+  def start(opts \\ []) do
+    spawn(fn ->
+      queue_loop(opts)
+    end)
   end
 
   def stop(cashier) do
@@ -17,7 +19,7 @@ defmodule TBM.Cashier do
     send(cashier, {:process_item, self()})
 
     receive do
-      :item_processed -> :ok
+      message -> message
     after
       1000 -> :timeout
     end
@@ -57,7 +59,13 @@ defmodule TBM.Cashier do
     send(cashier, :stroke)
   end
 
-  defp queue_loop(state \\ %{line: :queue.new(), report: 0})
+  @default_state %{line: :queue.new(), items: 0, smart: false}
+
+  defp queue_loop(opts) when is_list(opts) do
+    opts
+    |> Enum.into(@default_state)
+    |> queue_loop()
+  end
 
   defp queue_loop(state) do
     if :queue.is_empty(state.line) do
@@ -79,8 +87,15 @@ defmodule TBM.Cashier do
       {:process_item, pid} ->
         Process.sleep(500)
         new_state = Map.update(state, :report, 0, &(&1 + 1))
-        send(pid, :item_processed)
-        process_loop(new_state)
+
+        if state.smart do
+          new_state = Map.update(new_state, :line, :queue.new(), &:queue.in(pid, &1))
+          send(pid, :back_to_line)
+          queue_loop(new_state)
+        else
+          send(pid, :next_item)
+          process_loop(new_state)
+        end
 
       {:pay, pid} ->
         Process.sleep(500)
