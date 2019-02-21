@@ -53,6 +53,10 @@ defmodule TBM.Cashier do
     end
   end
 
+  def get_stroke(cashier) do
+    send(cashier, :stroke)
+  end
+
   defp queue_loop(state \\ %{line: :queue.new(), report: 0})
 
   defp queue_loop(state) do
@@ -103,4 +107,5 @@ defmodule TBM.Cashier do
   end
 
   defp fallback_receive(:stop, _, _), do: :ok
+  defp fallback_receive(:stroke, _, _), do: raise "Cashier had a stroke"
 end

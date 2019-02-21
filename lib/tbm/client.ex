@@ -67,21 +67,30 @@ defmodule TBM.Client do
 
       {:get_in_line, cashier, pid} ->
         new_state = Map.put(state, :cashier, cashier)
-        :ok = Cashier.get_in_line(cashier)
-        send(pid, :in_line)
-        queue_loop(new_state)
+
+        Process.monitor(cashier)
+
+        cashier
+        |> Cashier.get_in_line()
+        |> handle_cashier_response(state, fn ->
+          send(pid, :in_line)
+          queue_loop(new_state)
+        end)
 
       :stop ->
         :ok
     end
   end
 
-  defp queue_loop(state) do
+  defp queue_loop(%{cashier: cashier} = state) do
     receive do
       {:start_processing, pid} ->
         send(pid, :processing)
 
         process_loop(state)
+
+      {:DOWN, _, :process, ^cashier, _} ->
+        cashier_is_dead(state)
 
       :stop ->
         :ok
@@ -91,14 +100,18 @@ defmodule TBM.Client do
   defp process_loop(state) do
     if state.items > 0 do
       new_state = Map.update(state, :items, 0, &(&1 - 1))
-      :ok = send_item(state)
-      process_loop(new_state)
-    else
-      :ok = send_pay(state)
 
       state
-      |> Map.put(:cashier, nil)
-      |> away_loop()
+      |> send_item()
+      |> handle_cashier_response(state, fn ->
+        process_loop(new_state)
+      end)
+    else
+      state
+      |> send_pay()
+      |> handle_cashier_response(state, fn ->
+        go_away(state)
+      end)
     end
   end
 
@@ -112,5 +125,19 @@ defmodule TBM.Client do
     Process.sleep(500)
     IO.puts("#{state.name}: Paying")
     Cashier.pay(state.cashier)
+  end
+
+  defp handle_cashier_response(:ok, _, fun), do: fun.()
+  defp handle_cashier_response(:timeout, state, _), do: cashier_is_dead(state)
+
+  defp cashier_is_dead(state) do
+    IO.puts("#{state.name}: There's something wrong with this cashier, send me to another one")
+    go_away(state)
+  end
+
+  defp go_away(state) do
+    state
+    |> Map.put(:cashier, nil)
+    |> away_loop()
   end
 end
